@@ -1,0 +1,33 @@
+{
+ "address": "epix1jaahfehr280m9uqlf44vtkrz9hjkvq8fewz68v",
+ "background-color": "#F6F6F9",
+ "background-color-dark": "#0B0B10",
+ "description": "Decentralized Flix. Films that stream peer to peer on EpixNet, no server, no account.",
+ "favicon": "img/favicon.ico",
+ "files": {},
+ "ignore": "(data/users/.*|data/.*\\.db|meta/.*)",
+ "includes": {
+  "data/users/content.json": {
+   "signers": [],
+   "signers_required": 1
+  }
+ },
+ "inner_path": "content.json",
+ "optional": "video/.*",
+ "signs_required": 1,
+ "title": "DeFlix",
+ "viewport": "width=device-width, initial-scale=1",
+ "distribution": {
+  "default": {
+   "unit": "package",
+   "retention": "complete"
+  },
+  "paths": {
+   "video/": {
+    "unit": "file-refs",
+    "retention": "partial"
+   }
+  }
+ },
+ "domain": "deflix.epix"
+}

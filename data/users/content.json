@@ -1,0 +1,40 @@
+{
+ "files": {},
+ "ignore": ".*",
+ "modified": 0,
+ "user_contents": {
+  "cert_signers": {
+   "xid.epix": [
+    "chain"
+   ]
+  },
+  "permission_rules": {
+   ".": {
+    "files_allowed": "data.json",
+    "max_size": 100000,
+    "merge_files": {
+     "comment_likes.json": {
+      "class": "epix-orset-1",
+      "max_size": 2000000
+     },
+     "comments.json": {
+      "class": "epix-orset-1",
+      "max_size": 3000000
+     },
+     "ratings.json": {
+      "class": "epix-orset-1",
+      "max_size": 2000000
+     },
+     "video_likes.json": {
+      "class": "epix-orset-1",
+      "max_size": 2000000
+     }
+    },
+    "signers": [
+     "mud.epix"
+    ]
+   }
+  },
+  "permissions": {}
+ }
+}

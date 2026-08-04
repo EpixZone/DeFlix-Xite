@@ -1,0 +1,143 @@
+{
+ "db_name": "EpixScreen",
+ "db_file": "data/epixscreen.db",
+ "version": 2,
+ "maps": {
+  "catalog/.+\\.json": {
+   "to_table": [
+    {
+     "node": "video",
+     "table": "video"
+    }
+   ]
+  },
+  "users/.+/content.json": {
+   "to_keyvalue": [
+    "cert_user_id"
+   ]
+  },
+  "users/.+/comments.json": {
+   "to_table": [
+    {
+     "node": "post",
+     "table": "comment"
+    }
+   ],
+   "file_name": "data.json",
+   "fold_crdt": "post"
+  },
+  "users/.+/video_likes.json": {
+   "to_table": [
+    {
+     "node": "post",
+     "table": "video_like"
+    }
+   ],
+   "file_name": "data.json",
+   "fold_crdt": "post"
+  },
+  "users/.+/comment_likes.json": {
+   "to_table": [
+    {
+     "node": "post",
+     "table": "comment_like"
+    }
+   ],
+   "file_name": "data.json",
+   "fold_crdt": "post"
+  },
+  "users/.+/ratings.json": {
+   "to_table": [
+    {
+     "node": "post",
+     "table": "rating"
+    }
+   ],
+   "file_name": "data.json",
+   "fold_crdt": "post"
+  }
+ },
+ "tables": {
+  "video": {
+   "cols": [
+    ["video_id", "TEXT"],
+    ["title", "TEXT"],
+    ["year", "INTEGER"],
+    ["category", "TEXT"],
+    ["series", "TEXT"],
+    ["series_id", "TEXT"],
+    ["episode", "INTEGER"],
+    ["description", "TEXT"],
+    ["poster", "TEXT"],
+    ["duration", "INTEGER"],
+    ["size", "INTEGER"],
+    ["studio", "TEXT"],
+    ["license", "TEXT"],
+    ["source", "TEXT"],
+    ["date_added", "INTEGER"],
+    ["json_id", "INTEGER REFERENCES json (json_id)"]
+   ],
+   "indexes": [
+    "CREATE UNIQUE INDEX video_key ON video(video_id)",
+    "CREATE INDEX video_category ON video(category)",
+    "CREATE INDEX video_series ON video(series_id)",
+    "CREATE INDEX video_date_added ON video(date_added)"
+   ],
+   "schema_changed": 2
+  },
+  "comment": {
+   "cols": [
+    ["comment_id", "INTEGER"],
+    ["video_id", "TEXT"],
+    ["reply_to", "TEXT"],
+    ["body", "TEXT"],
+    ["date_added", "INTEGER"],
+    ["json_id", "INTEGER REFERENCES json (json_id)"]
+   ],
+   "indexes": [
+    "CREATE UNIQUE INDEX comment_key ON comment(json_id, comment_id)",
+    "CREATE INDEX comment_video_id ON comment(video_id)",
+    "CREATE INDEX comment_reply_to ON comment(reply_to)",
+    "CREATE INDEX comment_date_added ON comment(date_added)"
+   ],
+   "schema_changed": 1
+  },
+  "video_like": {
+   "cols": [
+    ["key", "TEXT"],
+    ["date_added", "INTEGER"],
+    ["json_id", "INTEGER REFERENCES json (json_id)"]
+   ],
+   "indexes": [
+    "CREATE UNIQUE INDEX video_like_key ON video_like(json_id, key)",
+    "CREATE INDEX video_like_target ON video_like(key)"
+   ],
+   "schema_changed": 1
+  },
+  "comment_like": {
+   "cols": [
+    ["key", "TEXT"],
+    ["date_added", "INTEGER"],
+    ["json_id", "INTEGER REFERENCES json (json_id)"]
+   ],
+   "indexes": [
+    "CREATE UNIQUE INDEX comment_like_key ON comment_like(json_id, key)",
+    "CREATE INDEX comment_like_target ON comment_like(key)"
+   ],
+   "schema_changed": 1
+  },
+  "rating": {
+   "cols": [
+    ["key", "TEXT"],
+    ["stars", "INTEGER"],
+    ["date_added", "INTEGER"],
+    ["json_id", "INTEGER REFERENCES json (json_id)"]
+   ],
+   "indexes": [
+    "CREATE UNIQUE INDEX rating_key ON rating(json_id, key)",
+    "CREATE INDEX rating_target ON rating(key)"
+   ],
+   "schema_changed": 1
+  }
+ }
+}
