@@ -13,6 +13,10 @@
 // supersedes the previous record rather than piling up rows.
 
 (function () {
+  function bindAvatar(element) {
+    EpixAvatar.bind(element, element.getAttribute("data-avatar-url"), Number(element.getAttribute("data-avatar-size")), {background: true});
+  }
+
   class User {
     constructor() {
       this.cert = null;          // "name@xid.epix"
@@ -80,16 +84,18 @@
     // the letter class toggled and a stable key: a node whose selector flips
     // from span.avatar.letter to span.avatar when a profile lands mid-render
     // makes maquette throw on distinguishability and freezes the projector.
-    static renderAvatar(directory, extra_class) {
+    static renderAvatar(directory, extra_class, size) {
       var dir = User.displayDir(directory);
       var url = Page.xidAvatar(dir);
       var name = User.displayName(directory);
       var attrs = {
         key: "av-" + dir,
         classes: { letter: !url },
-        styles: url
-          ? { "background-image": "url('" + url.replace(/'/g, "%27") + "')" }
-          : { "background-color": Text.toColor(dir) }
+        styles: { "background-color": url ? "" : Text.toColor(dir) },
+        "data-avatar-url": url || "",
+        "data-avatar-size": String(size),
+        afterCreate: bindAvatar,
+        afterUpdate: bindAvatar
       };
       return h("span.avatar" + (extra_class ? "." + extra_class : ""), attrs,
         url ? [] : [(name || "?").charAt(0).toUpperCase()]);
