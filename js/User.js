@@ -13,10 +13,6 @@
 // supersedes the previous record rather than piling up rows.
 
 (function () {
-  function bindAvatar(element) {
-    EpixAvatar.bind(element, element.getAttribute("data-avatar-url"), Number(element.getAttribute("data-avatar-size")), {background: true});
-  }
-
   class User {
     constructor() {
       this.cert = null;          // "name@xid.epix"
@@ -80,6 +76,11 @@
       return (directory || "").replace(/^users\//, "");
     }
 
+    static bindAvatar(element) {
+      const { avatarUrl, avatarSize } = element.dataset;
+      EpixAvatar.bind(element, avatarUrl, Number(avatarSize), {background: true});
+    }
+
     // One avatar element for a user directory. ALWAYS the same selector with
     // the letter class toggled and a stable key: a node whose selector flips
     // from span.avatar.letter to span.avatar when a profile lands mid-render
@@ -94,8 +95,8 @@
         styles: { "background-color": url ? "" : Text.toColor(dir) },
         "data-avatar-url": url || "",
         "data-avatar-size": String(size),
-        afterCreate: bindAvatar,
-        afterUpdate: bindAvatar
+        afterCreate: User.bindAvatar,
+        afterUpdate: User.bindAvatar
       };
       return h("span.avatar" + (extra_class ? "." + extra_class : ""), attrs,
         url ? [] : [(name || "?").charAt(0).toUpperCase()]);
