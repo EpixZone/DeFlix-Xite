@@ -4,6 +4,7 @@
   "use strict";
   var bindings = new WeakMap();
   var requests = new WeakMap();
+  var capabilities = new WeakMap();
 
   function eligible(source, size) {
     if (typeof source !== "string" || source.length > 2048 || !Number.isInteger(size) || size < 1 || size > 128) return false;
@@ -23,6 +24,20 @@
     return url.href;
   }
 
+  function supported(frame) {
+    if (capabilities.has(frame)) return capabilities.get(frame);
+    var check = new Promise(function (resolve) {
+      var timer = setTimeout(function () { capabilities.delete(frame); resolve(false); }, 900);
+      function reply(version) { clearTimeout(timer); resolve(version === 1); }
+      try {
+        var result = frame.cmd("wrapperAvatarThumbnailVersion", {}, reply);
+        if (result && typeof result.then === "function") result.then(reply, function () { reply(null); });
+      } catch (_) { reply(null); }
+    });
+    capabilities.set(frame, check);
+    return check;
+  }
+
   function get(source, size, frame) {
     frame = frame || root.Page;
     if (root.parent === root || !eligible(source, size) || !frame || typeof frame.cmd !== "function") return Promise.resolve(null);
@@ -30,18 +45,25 @@
     if (!pending) { pending = new Map(); requests.set(frame, pending); }
     var key = JSON.stringify([source, size]);
     if (pending.has(key)) return pending.get(key);
-    var request = new Promise(function (resolve) {
-      var timer = setTimeout(function () { resolve(null); }, 16000);
-      function reply(value) {
-        clearTimeout(timer);
-        var png = value && value.thumbnail;
-        resolve(typeof png === "string" && png.length <= 100000 &&
-          /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(png) ? png : null);
-      }
-      try {
-        var result = frame.cmd("wrapperGetAvatarThumbnail", {url: source, size: size}, reply);
-        if (result && typeof result.then === "function") result.then(reply, function () { reply(null); });
-      } catch (_) { reply(null); }
+    var request = supported(frame).then(function (available) {
+      if (!available || typeof MessageChannel !== "function") return null;
+      return new Promise(function (resolve) {
+        // WindowProxy survives navigation. A transferred port delivers the
+        // image only to the document that actually asked for it.
+        var channel = new MessageChannel();
+        function finish(png) {
+          clearTimeout(timer);
+          channel.port1.close();
+          resolve(typeof png === "string" && png.length <= 100000 &&
+            /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(png) ? png : null);
+        }
+        var timer = setTimeout(function () { finish(null); }, 16000);
+        channel.port1.onmessage = function (event) { finish(event.data && event.data.thumbnail); };
+        try {
+          root.parent.postMessage({cmd: "wrapperGetAvatarThumbnail", id: 0,
+            wrapper_nonce: frame.wrapper_nonce, params: {url: source, size: size}}, "*", [channel.port2]);
+        } catch (_) { channel.port2.close(); finish(null); }
+      });
     }).finally(function () { pending.delete(key); });
     pending.set(key, request);
     return request;
