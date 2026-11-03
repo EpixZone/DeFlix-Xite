@@ -710,6 +710,21 @@
     var vd = this.verdict(stats);
     box.appendChild(h("div.epix-player-verdict." + vd[0], {}, [vd[1]]));
 
+    // The film as a strip of chunks, like a torrent client's: what is here,
+    // what is on the wire, what a fetch has queued, and the gaps nobody has
+    // asked for yet. One character per cell from the node (see CHUNK_COLORS).
+    var chunk_map = s.chunks && typeof s.chunks.map === "string" ? s.chunks.map : "";
+    var strip = null;
+    if (chunk_map) {
+      strip = h("canvas.epix-player-chunks", { height: "10" });
+      box.appendChild(strip);
+      box.appendChild(h("div.epix-player-chunkkey", {}, CHUNK_KEY.map(function (k) {
+        var swatch = h("i");
+        swatch.style.background = CHUNK_COLORS[k[0]];
+        return h("span", {}, [swatch, k[1]]);
+      })));
+    }
+
     // Two columns: thirteen numbers fit without the panel ever scrolling.
     var grid = h("div.epix-player-statgrid");
     var row = function (k, val) {
@@ -811,6 +826,38 @@
 
     // Draw after layout so clientWidth is real.
     this.drawSpark(canvas, need);
+    if (strip) this.drawChunks(strip, chunk_map);
+  };
+
+  var CHUNK_COLORS = {
+    h: "rgba(49, 189, 198, .9)",   // downloaded
+    p: "rgba(49, 189, 198, .45)",  // partly downloaded
+    d: "#e2a43c",                  // downloading now
+    q: "#8b6cf0",                  // queued
+    ".": "rgba(255, 255, 255, .08)" // not downloaded
+  };
+  var CHUNK_KEY = [["h", "Downloaded"], ["d", "Downloading"], ["q", "Queued"], [".", "Not yet"]];
+
+  // Runs of one state are drawn as one rect, and the play position as a
+  // white tick, so a seek shows where the node is filling relative to it.
+  EpixPlayer.prototype.drawChunks = function (canvas, map) {
+    var ctx = canvas.getContext("2d");
+    var w = canvas.clientWidth || 260, hgt = 10;
+    if (canvas.width !== w) canvas.width = w;
+    ctx.clearRect(0, 0, w, hgt);
+    var cell = w / map.length;
+    for (var i = 0; i < map.length;) {
+      var j = i;
+      while (j < map.length && map[j] === map[i]) j++;
+      ctx.fillStyle = CHUNK_COLORS[map[i]] || CHUNK_COLORS["."];
+      ctx.fillRect(Math.floor(i * cell), 0, Math.ceil((j - i) * cell), hgt);
+      i = j;
+    }
+    var d = this.video.duration;
+    if (d && isFinite(d)) {
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(Math.min(w - 2, Math.round(this.video.currentTime / d * w)), 0, 2, hgt);
+    }
   };
 
   // Rate history. Bars go amber when bytes arrive slower than the film plays.
