@@ -14,6 +14,8 @@
 //     onTime:   function(t, dur) {},     // playback progress
 //     onEnded:  function() {},
 //     onStats:  function(cb) {}          // optional: transfer stats provider
+//     loadText: function(src) {}         // optional: Promise of a caption file's
+//                                        // text; defaults to fetch()
 //   });
 //   player.destroy();
 //
@@ -119,11 +121,14 @@
   EpixPlayer.prototype.build = function () {
     var o = this.opts;
 
+    // No crossorigin attribute: the xite frame is an opaque origin, and the
+    // node grants it no CORS read of media files, so a CORS-mode <video>
+    // (and its poster) is refused and never starts. A plain media load is
+    // allowed, and the player never reads pixels back from the element.
     this.video = h("video", {
       playsinline: "",
       preload: "metadata",
-      poster: o.poster || null,
-      crossorigin: "anonymous"
+      poster: o.poster || null
     });
     (o.sources || []).forEach(function (s) {
       this.video.appendChild(h("source", { src: s.src, type: s.type || null }));
@@ -255,8 +260,10 @@
     var track = this.tracks.filter(function (t) { return t.meta.lang === lang; })[0];
     if (!track || this._cues[lang]) return;
     this._cues[lang] = []; // marks the fetch in flight; replaced on parse
-    fetch(track.meta.src)
-      .then(function (r) { return r.ok ? r.text() : ""; })
+    var load = this.opts.loadText || function (src) {
+      return fetch(src).then(function (r) { return r.ok ? r.text() : ""; });
+    };
+    load(track.meta.src)
       .then(function (text) {
         self._cues[lang] = parseVtt(text);
         self._cue_sig = null; // repaint with the fresh cues
