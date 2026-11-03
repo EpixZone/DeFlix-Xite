@@ -22,7 +22,7 @@
           onclick: this.handleCert,
           title: user.cert
         }, [
-          User.renderAvatar(user.userDir(), "shell-avatar"),
+          User.renderAvatar(user.userDir(), "shell-avatar", 22),
           h("span.shell-name", name)
         ]);
       }

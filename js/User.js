@@ -76,20 +76,27 @@
       return (directory || "").replace(/^users\//, "");
     }
 
+    static bindAvatar(element) {
+      const { avatarUrl, avatarSize } = element.dataset;
+      EpixAvatar.bind(element, avatarUrl, Number(avatarSize), {background: true});
+    }
+
     // One avatar element for a user directory. ALWAYS the same selector with
     // the letter class toggled and a stable key: a node whose selector flips
     // from span.avatar.letter to span.avatar when a profile lands mid-render
     // makes maquette throw on distinguishability and freezes the projector.
-    static renderAvatar(directory, extra_class) {
+    static renderAvatar(directory, extra_class, size) {
       var dir = User.displayDir(directory);
       var url = Page.xidAvatar(dir);
       var name = User.displayName(directory);
       var attrs = {
         key: "av-" + dir,
         classes: { letter: !url },
-        styles: url
-          ? { "background-image": "url('" + url.replace(/'/g, "%27") + "')" }
-          : { "background-color": Text.toColor(dir) }
+        styles: { "background-color": url ? "" : Text.toColor(dir) },
+        "data-avatar-url": url || "",
+        "data-avatar-size": String(size),
+        afterCreate: User.bindAvatar,
+        afterUpdate: User.bindAvatar
       };
       return h("span.avatar" + (extra_class ? "." + extra_class : ""), attrs,
         url ? [] : [(name || "?").charAt(0).toUpperCase()]);

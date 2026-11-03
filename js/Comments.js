@@ -256,7 +256,7 @@
         styles: { "margin-left": indent > 0 ? (indent * 20) + "px" : "0" }
       }, [
         h("div.comment-head", [
-          User.renderAvatar(row.directory, "comment-author"),
+          User.renderAvatar(row.directory, "comment-author", 24),
           h("span.comment-name", User.displayName(row.directory)),
           h("span.comment-time", { title: Time.date(row.date_added, "long") },
             Time.since(row.date_added)),
