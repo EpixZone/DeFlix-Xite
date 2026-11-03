@@ -200,7 +200,14 @@
         sources: media.sources,
         captions: media.captions,
         poster: media.poster,
-        onStats: (cb) => Page.videoStats(this.video_id, cb)
+        onStats: (cb) => Page.videoStats(this.video_id, cb),
+        // Over the websocket: the page is an opaque origin, so a plain
+        // fetch() of its own caption file is refused by the node.
+        loadText: (src) => new Promise((resolve) => {
+          Page.cmd("fileGet", { "inner_path": src, "required": false }, (data) => {
+            resolve(typeof data === "string" ? data : "");
+          });
+        })
       });
     }
 
