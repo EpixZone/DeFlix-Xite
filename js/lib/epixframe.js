@@ -12,12 +12,24 @@
    *
    * Usage:
    *   Script tag:  window.EpixFrame (constructor), window.epixFrame (singleton)
-   *   ES module:   import { EpixFrame, epixFrame } from '@epixzone/epixframe'
+   *   ES module:   import { EpixFrame, epixFrame } from './js/lib/epixframe.esm.js'
+   *                (epixFrame is the shared instance; epixFrame() also returns it)
    *   CoffeeScript: class MyApp extends EpixFrame
    *
    * @license MIT
-   * @version 1.0.0
+   * @version 1.1.1
    */
+
+  // `u` (a URL) with the xite's ajax_key appended to its query, before any
+  // fragment.
+  function withKey(u, key) {
+    var hash = u.hash;
+    var bare = u.href.slice(0, u.href.length - hash.length);
+    var sep = '?';
+    if (u.search) sep = '&';
+    else if (bare.charAt(bare.length - 1) === '?') sep = '';
+    return bare + sep + 'ajax_key=' + encodeURIComponent(key) + hash;
+  }
 
   class EpixFrame {
     constructor(url) {
@@ -51,6 +63,11 @@
 
     // ---------------------------------------------------------------------------
     // Overridable hooks (CoffeeScript subclass pattern)
+    //
+    // The matching on() events ('openWebsocket', 'closeWebsocket', 'request')
+    // are emitted by the message handler right after the hook runs, so a
+    // subclass may override a hook without calling super and on() listeners
+    // still fire.
     // ---------------------------------------------------------------------------
 
     init() {
@@ -59,17 +76,14 @@
 
     onOpenWebsocket() {
       this.log('Websocket open');
-      this._emit('openWebsocket');
     }
 
     onCloseWebsocket() {
       this.log('Websocket close');
-      this._emit('closeWebsocket');
     }
 
     onRequest(cmd, message) {
       this.log('Unknown request', cmd, message);
-      this._emit('request', cmd, message);
     }
 
     // ---------------------------------------------------------------------------
@@ -190,28 +204,69 @@
     serverInfo() { return this.cmd('serverInfo'); }
     siteInfo() { return this.cmd('siteInfo'); }
 
-    getLocalStorage() { return this.cmd('wrapperGetLocalStorage'); }
-    setLocalStorage(data) { return this.cmd('wrapperSetLocalStorage', [data]); }
+    /**
+     * Read this xite's wrapper-side storage (per xite and identity).
+     * Data written by EpixFrame 1.0.x was stored wrapped in a one-element
+     * array; that shape is unwrapped here so it keeps reading back as written.
+     */
+    getLocalStorage() {
+      return this.cmd('wrapperGetLocalStorage').then(function (data) {
+        return Array.isArray(data) && data.length === 1 ? data[0] : data;
+      });
+    }
+
+    /** Write this xite's wrapper-side storage. `data` is stored as given. */
+    setLocalStorage(data) { return this.cmd('wrapperSetLocalStorage', data); }
 
     getState() { return this.cmd('wrapperGetState'); }
-    pushState(state) { return this.cmd('wrapperPushState', [state, null]); }
-    replaceState(state) { return this.cmd('wrapperReplaceState', [state, null]); }
 
-    setViewport(viewport) { return this.cmd('wrapperSetViewport', viewport); }
-    setTitle(title) { return this.cmd('wrapperSetTitle', title); }
+    // The wrapper never answers the following commands, so they are posted
+    // without registering a callback and return an already resolved Promise
+    // (resolved once the message is posted, not when the wrapper acts on it).
+
+    pushState(state) { return this._post('wrapperPushState', [state, null]); }
+    replaceState(state) { return this._post('wrapperReplaceState', [state, null]); }
+
+    setViewport(viewport) { return this._post('wrapperSetViewport', viewport); }
+    setTitle(title) { return this._post('wrapperSetTitle', title); }
 
     notify(type, message, timeout) {
       var params = [type, message];
       if (timeout != null) params.push(timeout);
-      return this.cmd('wrapperNotification', params);
+      return this._post('wrapperNotification', params);
     }
 
-    confirm(message) { return this.cmd('wrapperConfirm', [message]); }
-    prompt(message, type, placeholder) { return this.cmd('wrapperPrompt', [message, type || 'text', placeholder || '']); }
+    /**
+     * Show a confirmation dialog. Resolves `true` when the user clicks the
+     * button (the wrapper answers 1). The wrapper sends nothing when the
+     * dialog is dismissed with its close button, so the Promise then stays
+     * pending.
+     */
+    confirm(message) {
+      return this.cmd('wrapperConfirm', [message]).then(function (res) {
+        return res === 1 || res === true;
+      });
+    }
 
-    openWindow(url) { return this.cmd('wrapperOpenWindow', [url]); }
-    innerLoaded() { return this.cmd('wrapperInnerLoaded'); }
-    requestPermission(permission) { return this.cmd('wrapperPermissionAdd', [permission]); }
+    /**
+     * Show a prompt dialog: `type` is the input type (default 'text'),
+     * `caption` the button label (default 'OK'), `placeholder` the input
+     * placeholder. Resolves with the entered text.
+     */
+    prompt(message, type, caption, placeholder) {
+      return this.cmd('wrapperPrompt', [message, type || 'text', caption || '', placeholder || '']);
+    }
+
+    openWindow(url) { return this._post('wrapperOpenWindow', [url]); }
+    innerLoaded() { return this._post('wrapperInnerLoaded'); }
+
+    /**
+     * Ask the user to grant this xite a permission (e.g. 'ADMIN',
+     * 'Merger:EpixPost'). Resolves with the node's answer once the user
+     * grants it. If the xite already holds the permission the wrapper sends
+     * no answer, so check siteInfo().settings.permissions first.
+     */
+    requestPermission(permission) { return this.cmd('wrapperPermissionAdd', permission); }
 
     // ---------------------------------------------------------------------------
     // File operations
@@ -240,7 +295,20 @@
       }
       return this.cmd('fileNeed', params);
     }
-    dirList(path, opts) { return this.cmd('dirList', [path, opts]); }
+
+    /**
+     * List a directory's entries. With `opts.stats` the node returns
+     * `[{name, is_dir, size}]`, otherwise just the names.
+     */
+    dirList(path, opts) {
+      var params = { inner_path: path || '' };
+      if (opts) {
+        for (var k in opts) {
+          if (opts.hasOwnProperty(k)) params[k] = opts[k];
+        }
+      }
+      return this.cmd('dirList', params);
+    }
 
     // ---------------------------------------------------------------------------
     // Database
@@ -288,7 +356,22 @@
     xidResolve(address) { return this.cmd('xidResolve', { address: address }); }
     xidResolveName(name) { return this.cmd('xidResolveName', { name: name }); }
     xidResolveBatch(addresses) { return this.cmd('xidResolveBatch', { addresses: addresses }); }
-    xidResolveSite(site) { return this.cmd('xidResolveSite', { site: site }); }
+    xidResolveIdentity(address) { return this.cmd('xidResolveIdentity', { address: address }); }
+
+    /**
+     * @deprecated The EpixNet node has no xidResolveSite command. This always
+     * rejects. For the current xite's verified domain read
+     * `siteInfo().canonical_domain`; to resolve a name use `xidResolveName`.
+     */
+    xidResolveSite(site) {
+      var message = 'xidResolveSite is not implemented by the EpixNet node: use siteInfo().canonical_domain ' +
+        'for the current xite, or xidResolveName(name)';
+      if (typeof console !== 'undefined' && console.warn) console.warn('[EpixFrame] ' + message, site);
+      // An Error, with the message also on `.error` like a node error reply.
+      var error = new Error(message);
+      error.error = message;
+      return Promise.reject(error);
+    }
 
     // ---------------------------------------------------------------------------
     // Encryption / Signing
@@ -307,7 +390,9 @@
 
     feedFollow(feeds) { return this.cmd('feedFollow', [feeds]); }
     feedList() { return this.cmd('feedListFollow'); }
+    /** Requires the ADMIN permission (the node refuses it otherwise). */
     feedQuery(params) { return this.cmd('feedQuery', params); }
+    /** Requires the ADMIN permission (the node refuses it otherwise). */
     feedSearch(query) { return this.cmd('feedSearch', [query]); }
 
     // ---------------------------------------------------------------------------
@@ -316,6 +401,7 @@
 
     muteAdd(authAddress, certUserId, reason) { return this.cmd('muteAdd', [authAddress, certUserId, reason]); }
     muteRemove(authAddress) { return this.cmd('muteRemove', [authAddress]); }
+    /** Requires the ADMIN permission (the node refuses it otherwise). */
     muteList() { return this.cmd('muteList'); }
 
     // ---------------------------------------------------------------------------
@@ -326,7 +412,30 @@
     optionalFileUnpin(path) { return this.cmd('optionalFileUnpin', [path]); }
     optionalFileDelete(path) { return this.cmd('optionalFileDelete', path); }
     optionalFileInfo(path) { return this.cmd('optionalFileInfo', path); }
-    optionalFileList(path) { return this.cmd('optionalFileList', [path]); }
+
+    /**
+     * List optional files. `filterInnerPath` is a SQL LIKE pattern on the
+     * inner path ('%' matches anything, e.g. 'data/videos/%'); pass null to
+     * list all. `opts` are the node's named options: `address` (another
+     * xite, needs permission for it), `filter` (default 'downloaded'; a
+     * comma list such as 'downloaded,bigfile'), `orderby` (default
+     * 'time_downloaded DESC') and `limit`. An options object may also be
+     * passed as the only argument.
+     */
+    optionalFileList(filterInnerPath, opts) {
+      if (filterInnerPath && typeof filterInnerPath === 'object') {
+        opts = filterInnerPath;
+        filterInnerPath = null;
+      }
+      var params = {};
+      if (filterInnerPath != null && filterInnerPath !== '') params.filter_inner_path = filterInnerPath;
+      if (opts) {
+        for (var k in opts) {
+          if (opts.hasOwnProperty(k)) params[k] = opts[k];
+        }
+      }
+      return this.cmd('optionalFileList', params);
+    }
     optionalHelp(directory, title, address) { return this.cmd('optionalHelp', [directory, title, address]); }
     optionalHelpRemove(directory, address) { return this.cmd('optionalHelpRemove', [directory, address]); }
 
@@ -344,7 +453,12 @@
 
     vrfGetBeacon(height) { return this.cmd('vrfGetBeacon', [height]); }
     vrfLatestBeacon() { return this.cmd('vrfLatestBeacon'); }
-    vrfDeriveRandom(height, seed, count) { return this.cmd('vrfDeriveRandom', [height, seed, count]); }
+    /**
+     * Derive `count` deterministic 32-byte hex values from a beacon (the hex
+     * `beacon` string of a VrfBeacon) and a seed. Resolves with a plain array
+     * of hex strings: value[i] = sha256(beacon + seed + i).
+     */
+    vrfDeriveRandom(beacon, seed, count) { return this.cmd('vrfDeriveRandom', [beacon, seed, count]); }
     vrfMultiBlockBeacon(endHeight, blocks) { return this.cmd('vrfMultiBlockBeacon', [endHeight, blocks]); }
     vrfInvalidateCache() { return this.cmd('vrfInvalidateCache'); }
 
@@ -371,28 +485,137 @@
     // Ajax monkey-patching
     // ---------------------------------------------------------------------------
 
-    async monkeyPatchAjax() {
+    /**
+     * Patch fetch and XMLHttpRequest so requests to this node's own host carry
+     * the xite's ajax_key (required to read the xite's files from the
+     * sandboxed frame). Requests to any other host are left untouched, so the
+     * key never leaks to RPC endpoints or other third parties. Same-host
+     * requests made before the wrapper has handed over the key wait for it
+     * (fetch is delayed; an async XHR's open/setRequestHeader/send are queued).
+     * Resolves once the key is known. Calling it again returns the same
+     * Promise. Outside the wrapper (top-level window) nothing is patched.
+     */
+    monkeyPatchAjax() {
+      if (this._ajaxKeyPromise != null) return this._ajaxKeyPromise;
       var self = this;
 
+      if (typeof window === 'undefined' || window.parent === window) {
+        this._ajaxKeyPromise = Promise.resolve();
+        return this._ajaxKeyPromise;
+      }
+
+      // Resolves with the key, or null when it cannot be had (the request
+      // then goes out unkeyed, exactly as without the patch).
+      var keyReady = this.cmd('wrapperGetAjaxKey').then(function (key) {
+        self._ajaxKey = key;
+        return key;
+      }, function (err) {
+        self.log('wrapperGetAjaxKey failed', err);
+        return null;
+      });
+      this._ajaxKeyPromise = keyReady.then(function () {});
+
+      if (window.__epixFrameAjaxPatched) return this._ajaxKeyPromise;
+      window.__epixFrameAjaxPatched = true;
+
+      // The URL to key, or null when `url` is not on this node's host or
+      // already carries a key.
+      function keyable(url) {
+        var loc = window.location;
+        var u;
+        try {
+          u = new URL(String(url), loc.href);
+        } catch (e) {
+          return null;
+        }
+        if (u.protocol !== loc.protocol || u.host !== loc.host) return null;
+        if (u.searchParams.has('ajax_key')) return null;
+        return u;
+      }
+
       if (typeof XMLHttpRequest !== 'undefined') {
-        XMLHttpRequest.prototype._realOpen = XMLHttpRequest.prototype.open;
-        XMLHttpRequest.prototype.open = function (method, url, async) {
-          url += (url.indexOf('?') === -1 ? '?' : '&') + 'ajax_key=' + self._ajaxKey;
-          return this._realOpen(method, url, async);
-        };
-      }
+        var proto = XMLHttpRequest.prototype;
+        var realOpen = proto.open;
+        var realSend = proto.send;
+        var realSetRequestHeader = proto.setRequestHeader;
+        var realAbort = proto.abort;
+        if (!proto._realOpen) proto._realOpen = realOpen;
 
-      if (typeof window !== 'undefined' && window.fetch) {
-        window._realFetch = window.fetch;
-        window.fetch = function (url) {
-          if (typeof url === 'string') {
-            url += (url.indexOf('?') === -1 ? '?' : '&') + 'ajax_key=' + self._ajaxKey;
+        proto.open = function (method, url) {
+          var args = Array.prototype.slice.call(arguments);
+          this._epixDeferred = null;
+          var u = keyable(url);
+          if (u) {
+            if (self._ajaxKey != null) {
+              args[1] = withKey(u, self._ajaxKey);
+            } else if (args.length < 3 || args[2] !== false) {
+              // Async request before the key arrived: replay it once it does.
+              this._epixDeferred = { open: args, url: u, headers: [] };
+              return;
+            } else {
+              self.log('Synchronous XHR before the ajax key arrived, sent without it:', url);
+            }
           }
-          return window._realFetch.apply(window, arguments);
+          return realOpen.apply(this, args);
+        };
+
+        proto.setRequestHeader = function () {
+          if (this._epixDeferred) {
+            this._epixDeferred.headers.push(Array.prototype.slice.call(arguments));
+            return;
+          }
+          return realSetRequestHeader.apply(this, arguments);
+        };
+
+        proto.send = function () {
+          var deferred = this._epixDeferred;
+          if (!deferred) return realSend.apply(this, arguments);
+          var sendArgs = Array.prototype.slice.call(arguments);
+          // Arrow function: `this` stays the XHR being replayed.
+          keyReady.then((key) => {
+            if (this._epixDeferred !== deferred) return; // aborted or reopened
+            this._epixDeferred = null;
+            var openArgs = deferred.open.slice();
+            if (key != null) openArgs[1] = withKey(deferred.url, key);
+            realOpen.apply(this, openArgs);
+            for (var header of deferred.headers) {
+              realSetRequestHeader.apply(this, header);
+            }
+            realSend.apply(this, sendArgs);
+          }).catch(function (err) {
+            // send() already returned, so the caller cannot see this throw.
+            self.log('Deferred XHR could not be sent:', err);
+          });
+        };
+
+        proto.abort = function () {
+          if (this._epixDeferred) {
+            this._epixDeferred = null;
+            return;
+          }
+          return realAbort.apply(this, arguments);
         };
       }
 
-      this._ajaxKey = await this.cmd('wrapperGetAjaxKey');
+      if (window.fetch) {
+        var realFetch = window.fetch;
+        if (!window._realFetch) window._realFetch = realFetch;
+        window.fetch = function (input) {
+          var args = Array.prototype.slice.call(arguments);
+          var isRequest = typeof Request !== 'undefined' && input instanceof Request;
+          var u = keyable(isRequest ? input.url : input);
+          if (!u) return realFetch.apply(window, args);
+          return keyReady.then(function (key) {
+            if (key != null) {
+              var keyed = withKey(u, key);
+              args[0] = isRequest ? new Request(keyed, input) : keyed;
+            }
+            return realFetch.apply(window, args);
+          });
+        };
+      }
+
+      return this._ajaxKeyPromise;
     }
 
     // ---------------------------------------------------------------------------
@@ -418,7 +641,7 @@
       // Scroll state: save on unload
       window.addEventListener('beforeunload', function () {
         self.history_state.scrollTop = window.pageYOffset || document.documentElement.scrollTop || 0;
-        self.cmd('wrapperReplaceState', [self.history_state, null]);
+        void self._post('wrapperReplaceState', [self.history_state, null]);
       });
 
       // Scroll state: restore on connect
@@ -458,10 +681,13 @@
         this.response(data.id, 'pong');
       } else if (cmd === 'wrapperOpenedWebsocket') {
         this.onOpenWebsocket();
+        this._emit('openWebsocket');
       } else if (cmd === 'wrapperClosedWebsocket') {
         this.onCloseWebsocket();
+        this._emit('closeWebsocket');
       } else {
         this.onRequest(cmd, data);
+        this._emit('request', cmd, data);
       }
     }
 
@@ -490,6 +716,13 @@
       }
     }
 
+    // Fire-and-forget: post a command the wrapper never answers, without
+    // leaving an entry in the pending-callback map.
+    _post(cmd, params) {
+      this._sendRaw({ cmd: cmd, params: params == null ? {} : params });
+      return Promise.resolve();
+    }
+
     _emit(event) {
       var listeners = this._listeners[event];
       if (!listeners) return;
@@ -501,7 +734,8 @@
     }
   }
 
-  // Singleton instance (lazy  - only created in UMD footer or when explicitly called)
+  // Shared instance, created lazily on first use so that loading the library
+  // never starts a frame that would compete with a subclass instance.
   var _singleton = null;
 
   function getEpixFrame() {
@@ -509,18 +743,43 @@
     return _singleton;
   }
 
+  // `epixFrame` behaves as the shared instance (`epixFrame.siteInfo()`, the
+  // same object as the UMD window.epixFrame) and, for 1.0.x code, can still be
+  // called: `epixFrame()` returns that instance. The instance is created on the
+  // first property access or call, not at import.
+  var epixFrame = new Proxy(() => {}, {
+    apply: function () {
+      return getEpixFrame();
+    },
+    get: function (target, prop) {
+      var instance = getEpixFrame();
+      var value = instance[prop];
+      return typeof value === 'function' && prop !== 'constructor' ? value.bind(instance) : value;
+    },
+    set: function (target, prop, value) {
+      getEpixFrame()[prop] = value;
+      return true;
+    },
+    has: function (target, prop) {
+      return prop in getEpixFrame();
+    },
+    getPrototypeOf: function () {
+      return Object.getPrototypeOf(getEpixFrame());
+    }
+  });
+
   exports.EpixFrame = EpixFrame;
-  exports.epixFrame = getEpixFrame;
+  exports.epixFrame = epixFrame;
 
 }));
 
 if (typeof window !== 'undefined') {
   window.EpixFrame = EpixFrameModule.EpixFrame;
-  var _epixFrameSingleton = null;
+  // The module's lazy shared instance (the one the ESM export proxies), so
+  // window.epixFrame and EpixFrameModule.epixFrame are the same frame.
   Object.defineProperty(window, 'epixFrame', {
     get: function() {
-      if (!_epixFrameSingleton) _epixFrameSingleton = new EpixFrameModule.EpixFrame();
-      return _epixFrameSingleton;
+      return EpixFrameModule.epixFrame();
     },
     configurable: true
   });
